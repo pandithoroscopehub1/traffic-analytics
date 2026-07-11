@@ -287,14 +287,18 @@
   </div>
 
   <script>
+    // ── CSRF-aware login flow ──────────────────────────────────
+    // 1. GET /api/csrf-token  → sets cookie + returns token value
+    // 2. POST /api/auth/login → sends token in X-CSRF-Token header
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
-      const errEl = document.getElementById('error-msg');
+      const errEl    = document.getElementById('error-msg');
       const submitBtn = document.getElementById('submit-btn');
-      const btnText = document.getElementById('btn-text');
-      const spinner = document.getElementById('btn-spinner');
+      const btnText  = document.getElementById('btn-text');
+      const spinner  = document.getElementById('btn-spinner');
 
       errEl.style.display = 'none';
       submitBtn.disabled = true;
@@ -302,9 +306,21 @@
       spinner.style.display = 'block';
 
       try {
+        // Step 1 — fetch CSRF token (sets the csrf_token cookie too)
+        const csrfResp = await fetch('/api/csrf-token', {
+          credentials: 'same-origin',
+        });
+        if (!csrfResp.ok) throw new Error('Could not fetch security token. Try refreshing.');
+        const { csrfToken } = await csrfResp.json();
+
+        // Step 2 — login with CSRF token in header
         const resp = await fetch('/api/auth/login', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
           body: JSON.stringify({ username, password }),
         });
         const data = await resp.json();
@@ -326,6 +342,7 @@
     // Redirect if already logged in
     if (localStorage.getItem('ta_token')) {
       fetch('/api/auth/me', {
+        credentials: 'same-origin',
         headers: { 'Authorization': 'Bearer ' + localStorage.getItem('ta_token') }
       }).then(r => { if (r.ok) window.location.href = '/dashboard'; });
     }
