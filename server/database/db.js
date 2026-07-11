@@ -65,14 +65,34 @@ function initSchema() {
 
 /**
  * Seed the default admin user if no users exist.
+ * If ADMIN_PASSWORD env var is explicitly set, always sync it to the DB
+ * so changing the env var + redeploying always updates the password.
  */
 async function seedAdmin() {
   const bcrypt = require('bcryptjs');
   const { v4: uuidv4 } = require('uuid');
 
   const row = db.prepare('SELECT COUNT(*) AS c FROM users').get();
-  if (row.c > 0) return;
 
+  if (row.c > 0) {
+    // User already exists — if ADMIN_PASSWORD env is explicitly set, sync it
+    if (process.env.ADMIN_PASSWORD) {
+      const user = db.prepare('SELECT * FROM users WHERE username = ?').get(config.adminUsername);
+      if (user) {
+        const match = await bcrypt.compare(process.env.ADMIN_PASSWORD, user.password);
+        if (!match) {
+          // Env var password differs from DB — update it
+          const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD, config.bcryptRounds);
+          db.prepare('UPDATE users SET password = ? WHERE username = ?')
+            .run(hash, config.adminUsername);
+          console.log(`[DB] Admin password synced from ADMIN_PASSWORD env var`);
+        }
+      }
+    }
+    return;
+  }
+
+  // No users yet — create the admin account fresh
   const hash = await bcrypt.hash(config.adminPassword, config.bcryptRounds);
   db.prepare(
     `INSERT INTO users (id, username, email, password, role) VALUES (?, ?, ?, ?, 'admin')`
